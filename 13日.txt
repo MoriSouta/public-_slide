@@ -1,0 +1,269 @@
+13日のアドベントカレンダーです。
+
+せっかくなので、なかなか出さない振り切ったネタで書きます。
+
+皆さんはC++は好きですか。
+自分は大好きな言語なのですが、あまりの難易度の高さからあまり業務では使いたくないのが本音です。
+他の言語には見られない、普段使わないような機能もどんどん追加されるので、
+少し目を離すと置き去りにされて驚きます。
+
+ここでは、私が一度も使ったことのなかった右辺値参照(2011年8月改定のC++11で追加!!)の話を勉強しつつ書いていきたいと思います。
+間違ってたらば、コメントくださると幸いです。
+
+
+そもそも右辺値って？
+誤解を恐れず、なんのかを簡潔に述べるなら「保持なければ寿命が尽きる一時オブジェクト」となります。
+
+以下C++日本語リファレンスから引用のソースコードになります。
+
+struct Foo{} ;
+int f() { return 0 ; }
+
+int main()
+{
+  int i = 0;
+
+  i;      // 名前付きオブジェクトは左辺値
+  0;      // リテラル値は右辺値
+
+  Foo x ;
+
+  x;      // 名前付きオブジェクトは左辺値
+  Foo();  // コンストラクタの戻り値は右辺値
+
+  f();    // 関数の戻り値は右辺値
+}
+
+大体こんな感じです。
+上のソースではリテラルや関数の返り値といった一時オブジェクトは右辺値、変数宣言されたiやFooのインスタンスといった名前付きオブジェクトは左辺値であることがわかります。
+
+右辺値参照
+ここでも誤解を恐れず、なんのかを端的に述べるなら「右辺値への参照を格納できる型」となります。
+例えば、一時オブジェクトへの参照を右辺値参照「型」変数に格納することで、一瞬で尽きるはずだった寿命を延長することができます。
+また、右辺値参照を通すことで一時オブジェクトへのアクセスを可能にします。(おまけ1)
+
+宣言は右辺値の型 + 「&&」で行います。
+ex) int&&  double&& HogeClass&&
+
+右辺値参照は代入される左辺の参照先を明確に区別し、右辺値のみ受け取ります。
+つまり、この型に入っている参照の先は必ず右辺値であるという保証ができます。
+
+先ほどの引用を借りると以下のようになります。
+
+struct Foo{} ;
+int f() { return 0 ; }
+
+int main()
+{
+  int i = 0;
+
+  int&& left_reference1 =  i;   // 右辺値参照に左辺値を入れようとしているのでエラー
+  int&& left_reference2 =  0;   // リテラル値は右辺値なのでOK
+    
+  Foo x ;
+  Foo&& left_reference3 = x;      // 右辺値参照に左辺値を入れようとしているのでエラー
+  Foo&& left_reference4 = Foo();  // コンストラクタの戻り値は右辺値なのでOK
+
+  int&& left_reference5 = f();    // 関数の戻り値は右辺値なのでOK
+}
+
+何故、消えてしまうはずだった物を敢えて生かしたいのか。
+何故、そんなものをわざわざ厳密に区別するのか。
+それは「右辺値はすぐに消えてしまう」という特性を利用したいが故です。
+
+ムーブマセンティクス
+右辺値参照の具体的な利用例として、筆頭に挙がるのは、この「ムーブマセンティクス」です。
+「ムーブマセンティクス」という言葉自体は、C++上の概念を指すのでここでは重要ではありません。
+大事なのは何をサポートするかです。
+またもや誤解を恐れず、サポートする事をざっくばらんに述べるなら「オブジェクトの所有権の移譲」となります。
+
+
+まずは以下のソースをご覧ください。
+
+class SampleClass{};
+
+SampleClass getSampleClass( SampleClass s )
+{ 
+    return s;
+}    
+        
+int main()
+{   
+    std::cout << "main_start------------------------------" << std::endl;
+    
+    SampleClass s;
+    s = getSampleClass(s);
+    
+    std::cout << "main_end--------------------------------" << std::endl;
+}
+
+C++の場合、インスタンスの値渡しができるため、以下のソースのようなを書いた場合、SampleClassそのものを3度も生成することになります。
+(生成される回数に関してはコピーコンストラクタを弄ることで確認できます。(おまけ2) )
+
+例では空っぽクラスなので問題無いですが、もしも内部に大きな配列を抱えたりしていたら、コピーのコストは無視できなくなります。
+(実際、ポインタで解決できる問題ですが、ファクトリとか値で返ってきてほしいなと感じます。delete怖いです。)
+
+そこで何とか無駄がなくなるようにしたいと、考えられたのがこの「ムーブマセンティクス」です。
+オブジェクトをコピーするのではなく、「オブジェクトの所有権の移譲」により、あたかもコピーしたかのように同じオブジェクトを使いまわそうと考えられました。
+
+
+
+具体的な実装は以下になります。
+
+感覚はほかの言語でいうcloneの実装に近いですね。
+
+moveのほうはアドレスの付け替えなので、当たり前ですが速いですことが確認できました。
+
+
+まとめ
+ながながと書きましたが、結局はC++特有の速さへの追及だったのかな、と思います。
+また、ムーブコンストラクタやムーブ演算子は暗黙的に生成されますし、コンパイラが最適化で良きにに計らってくれるなど、
+なかなか意識する場面はないかもしれません。
+ただ、大きな自作クラスを用意した場合やムーブコンストラクタやムーブ演算子は暗黙的に生成されない場面では
+積極的に活用していきたいテクニックだと感じました。
+
+最後に
+他の言語でも似たような機能あるんでしょうか？
+そもそも、オブジェクトの操作をすべて参照で実装している言語の場合、こんなことしたい場面が生まれない気もしますが・・・。
+
+参考
+C++日本語リファレンス
+https://cpprefjp.github.io/
+C++日本語リファレンスの「ムーブマセンティクス」の記事
+この投稿は大体ほぼページの内容です。
+https://cpprefjp.github.io/lang/cpp11/rvalue_ref_and_move_semantics.html
+わかりやすいブログ記事
+https://yohhoy.hatenablog.jp/entry/2012/12/15/120839
+
+
+おまけ1 右辺値の延命
+struct SampleStruct
+{
+    std::string txt;
+    SampleStruct( std::string txt )
+    {
+        this -> txt = txt;
+        std::cout << "CONSTRUCTOR!!" << txt << std::endl; 
+    }
+    
+    ~SampleStruct()
+    {
+        std::cout << "DESTRUCTOR!!" << txt << std::endl; 
+    }
+    
+};
+
+int main()
+{
+    std::cout << "main_start------------------------------" << std::endl;
+    
+    SampleStruct( "no_reference" ); //即死
+    
+    SampleStruct&& s = SampleStruct( "get_reference" ); //mainぬけるまでは生きる
+    
+    {
+        SampleStruct&& s = SampleStruct( "get_reference2" ); //ちゃんと右辺値参照と共に死ぬ
+        std::cout << "access -> "<<s.txt << std::endl;
+    }
+    
+    std::cout << "main_end--------------------------------" << std::endl;
+}
+
+おまけ2 コピーコンストラクタをちょいちょい
+class SampleClass
+{
+    public:
+    SampleClass()
+    {
+            std::cout << "CONSTRUCTOR!!" << std::endl;
+    }
+    ~SampleClass()
+    {
+            std::cout << "DESTRUCTOR!!" << std::endl;
+    }
+    SampleClass( const SampleClass& )
+    {
+        std::cout << "COPY_CONSTRUCTOR!!" << std::endl;
+    } 
+    
+};
+
+SampleClass getSampleClass( SampleClass s )
+{ 
+    return s;
+}    
+        
+
+int main()
+{   
+    std::cout << "main_start------------------------------" << std::endl;
+    
+    //すべて値渡しなのでコピーの連続
+    SampleClass s;
+    s = getSampleClass(s);
+    
+    std::cout << "main_end--------------------------------" << std::endl;
+}
+
+
+#include <iostream>
+#include <time.h>
+
+class TooFatClass
+{
+    char* str;
+
+public:
+	TooFatClass()
+	{
+		str = new char[1024*1024];
+	}
+
+    TooFatClass( TooFatClass& l )
+	{
+       std::cout << "copy!!" << std::endl;
+       str = new char[1024*1024];
+       std::copy( l.str, l.str + 1024*1024, str );
+	}
+    
+    TooFatClass& operator =( TooFatClass&& r )
+	{
+        std::cout << "move!" << std::endl;
+        str = r.str;
+        r.str = nullptr;
+	    return *this; 
+	}
+	
+	~TooFatClass()
+	{
+		delete[] str;
+	}
+};
+
+int main()
+{   
+    std::cout << "main_start------------------------------" << std::endl;
+    TooFatClass fat;
+    clock_t c_start = clock(); 
+
+    TooFatClass copy( fat ); //コピーコンストラクタでインスタンスのコピー
+    
+    clock_t c_end = clock();
+    std::cout << (double)(c_end - c_start) << "[ms]"<< std::endl;
+
+    clock_t m_start = clock(); 
+        
+    /*
+    TooFatClass move = TooFatClass(); 
+    上の書き方だと右辺値を渡してもmoveコンストラクタ呼ばれない。
+    最適化には勝てなかったよ・・・。RVO(Return Value Optimization)というみたいです。
+    ただし、moveコンストラクタは用意しないとコンパイルエラーになる。
+	*/
+	TooFatClass move;
+	move = TooFatClass();  //ムーブでインスタンスのコピー
+
+    clock_t m_end = clock();
+    std::cout << (double)(m_end - m_start) << "[ms]"<< std::endl;
+    
+    std::cout << "main_end--------------------------------" << std::endl;
+}
