@@ -59,12 +59,55 @@
 
 ---
 ## ■ 気になった機能 
-Cバインディング
+並列処理
 
+	channel = Channel(Int32).new
+    spawn do
+      puts "Before first send"
+      channel.send(1)
+      puts "Before second send"
+      channel.send(2)
+    end
+
+---
+## ■ 気になった機能 
+並列処理
+
+    puts "Before first receive"
+    value = channel.receive
+    puts value
+
+    puts "-"*10
+
+    puts "Before second receive"
+    value = channel.receive
+    puts value
+
+---
+## ■ 気になった機能 
+
+	Before first receive
+	Before first send
+	1
+	----------
+	Before second receive
+	Before second send
+	2
+    
 ---
 
 ## ■ 気になった機能 
 マクロ
+
+    macro define_method(name, content)
+      def {{name}}
+        {{content}}
+      end
+    end
+
+	define_method foo, 1
+
+	foo #=> 1
 
 ---
 
@@ -74,6 +117,7 @@ PlayGround
     crystal play
     
 で起動できる。
+
 ブラウザ上で軽く動かせるので便利？
 
 ---
